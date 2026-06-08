@@ -965,7 +965,9 @@ function ReservationScreen({
             }
             setScannerOpen(false)
             await checkIn()
-            window.location.href = '/#/active-session'
+            setTimeout(() => {
+  window.location.href = '/#/active-session';
+}, 500);
           } else {
             setStatusMessage('Wrong seat — please scan the QR code at your reserved seat.')
           }
