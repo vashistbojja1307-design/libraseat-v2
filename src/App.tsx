@@ -1077,17 +1077,131 @@ function ReservationScreen({
 
 function ActiveSessionScreen() {
   const navigate = useNavigate()
+  const [sessionData, setSessionData] = useState<{
+    reservationId: string
+    seatId: string
+    seatNumber: string
+    zoneName: string
+    startedAt: string
+  } | null>(null)
+  const [elapsed, setElapsed] = useState(0)
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(ACTIVE_SESSION_STORAGE_KEY)
+      if (!stored) return
+
+      const parsed = JSON.parse(stored)
+      if (
+        !parsed ||
+        typeof parsed.reservationId !== 'string' ||
+        typeof parsed.seatId !== 'string' ||
+        typeof parsed.seatNumber !== 'string' ||
+        typeof parsed.zoneName !== 'string' ||
+        typeof parsed.startedAt !== 'string'
+      ) {
+        localStorage.removeItem(ACTIVE_SESSION_STORAGE_KEY)
+        return
+      }
+
+      setSessionData(parsed)
+    } catch {
+      localStorage.removeItem(ACTIVE_SESSION_STORAGE_KEY)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!sessionData?.startedAt) return
+
+    const startMs = new Date(sessionData.startedAt).getTime()
+    const updateElapsed = () => {
+      setElapsed(Math.max(0, Math.floor((Date.now() - startMs) / 1000)))
+    }
+
+    updateElapsed()
+    const interval = window.setInterval(updateElapsed, 1000)
+    return () => window.clearInterval(interval)
+  }, [sessionData])
+
+  const vacateSeat = async () => {
+    if (!sessionData) return
+
+    try {
+      await supabase.from('seats').update({ status: 'free' }).eq('id', sessionData.seatId)
+      await supabase.from('reservations').delete().eq('id', sessionData.reservationId)
+    } catch (error) {
+      console.error('Vacate seat failed', error)
+    } finally {
+      localStorage.removeItem(ACTIVE_SESSION_STORAGE_KEY)
+      navigate('/')
+    }
+  }
+
+  if (!sessionData) {
+    return (
+      <div className="rounded-3xl border border-white/10 bg-slate-950/80 p-8 text-center shadow-xl shadow-black/30">
+        <p className="text-lg font-semibold text-white">No active session found.</p>
+        <p className="mt-3 text-sm text-slate-400">
+          Your active session data is missing. Reserve a seat and check in to start tracking your session.
+        </p>
+        <button
+          onClick={() => navigate('/')}
+          className="mt-6 rounded-3xl bg-teal-500 px-6 py-3 text-sm font-semibold text-slate-950 transition hover:bg-teal-400"
+        >
+          Go to dashboard
+        </button>
+      </div>
+    )
+  }
+
+  const startDate = new Date(sessionData.startedAt)
 
   return (
-    <div style={{ color: 'white', padding: '20px' }}>
-      <h1>Active Session</h1>
-      <p>localStorage data: {localStorage.getItem('libraseat_active_session')}</p>
-      <button
-        onClick={() => navigate('/')}
-        style={{ marginTop: '16px', padding: '10px 16px', borderRadius: '12px', background: '#14b8a6', color: '#0f172a', border: 'none', cursor: 'pointer' }}
-      >
-        Go home
-      </button>
+    <div className="space-y-8">
+      <section className="rounded-3xl border border-white/10 bg-slate-950/80 p-8 shadow-xl shadow-black/30">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm uppercase tracking-[0.35em] text-teal-400/80">Active session</p>
+            <h2 className="mt-2 text-3xl font-semibold text-white">{sessionData.seatNumber}</h2>
+            <p className="mt-1 text-sm text-slate-400">{sessionData.zoneName}</p>
+          </div>
+          <div className="rounded-3xl bg-gradient-to-r from-slate-900/80 to-slate-800/90 p-4 text-right">
+            <p className="text-sm uppercase tracking-[0.35em] text-slate-400">Elapsed</p>
+            <p className="mt-2 text-3xl font-semibold text-white">{formatCountdown(elapsed)}</p>
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-3xl border border-white/10 bg-slate-950/80 p-8 shadow-xl shadow-black/30">
+        <div className="grid gap-4 sm:grid-cols-3">
+          <div className="rounded-3xl bg-slate-900/80 p-5">
+            <p className="text-sm uppercase tracking-[0.35em] text-slate-400">Seat</p>
+            <p className="mt-3 text-xl font-semibold text-white">{sessionData.seatNumber}</p>
+          </div>
+          <div className="rounded-3xl bg-slate-900/80 p-5">
+            <p className="text-sm uppercase tracking-[0.35em] text-slate-400">Zone</p>
+            <p className="mt-3 text-xl font-semibold text-white">{sessionData.zoneName}</p>
+          </div>
+          <div className="rounded-3xl bg-slate-900/80 p-5">
+            <p className="text-sm uppercase tracking-[0.35em] text-slate-400">Started</p>
+            <p className="mt-3 text-xl font-semibold text-white">
+              {startDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-3xl border border-white/10 bg-slate-950/80 p-8 shadow-xl shadow-black/30">
+        <p className="text-sm text-slate-300">
+          When you finish, vacate the seat so the library map and reservation system stay updated.
+        </p>
+        <button
+          onClick={vacateSeat}
+          className="mt-6 rounded-3xl bg-rose-500 px-6 py-4 text-sm font-semibold text-white transition hover:bg-rose-400"
+        >
+          Vacate seat
+        </button>
+      </section>
     </div>
   )
 }
