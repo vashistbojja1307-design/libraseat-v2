@@ -10,62 +10,126 @@ import {
 import QRCode from 'qrcode'
 import { supabase } from './lib/supabase'
 
-const ACTIVE_SESSION_STORAGE_KEY = 'libraseat_active_session'
-const BITS_DOMAIN = /@hyderabad\.bits-pilani\.ac\.in$/i
+    const [elapsed, setElapsed] = useState(0)
+    const location = useLocation()
+    const navigate = useNavigate()
 
-const navLinkClass = ({ isActive }: { isActive: boolean }) =>
-  `rounded-full px-4 py-2 text-sm font-semibold transition ${
-    isActive
-      ? 'bg-teal-500 text-slate-950'
-      : 'bg-slate-900 text-slate-300 hover:bg-slate-800'
-  }`
+    const [localStart, setLocalStart] = useState<Date | null>(activeSessionStart)
+    const [localSeat, setLocalSeat] = useState<Seat | null>(activeSessionSeat)
+    const [localZone, setLocalZone] = useState<Zone | null>(activeSessionZone)
+    const [loadingLocal, setLoadingLocal] = useState(false)
 
-const formatCountdown = (seconds: number) => {
-  const minutes = Math.floor(seconds / 60)
-    .toString()
-    .padStart(2, '0')
-  const secs = Math.floor(seconds % 60)
-    .toString()
-    .padStart(2, '0')
-  return `${minutes}:${secs}`
-}
+    // If App-level session is not set, attempt to read route state and fetch seat details
+    useEffect(() => {
+      if (activeSessionStart) return
 
-type Seat = {
-  id: number | string
-  seat_number?: string | null
-  label?: string | null
-  status?: string | null
-  blocked?: boolean | null
-  zone_id?: number | string | null
-}
+      const state: any = (location && (location as any).state) || {}
+      if (!state?.reservationId && !state?.seatId) {
+        navigate('/', { replace: true })
+        return
+      }
 
-type Zone = {
-  id: number | string
-  name: string
-  description: string
-}
+      setLoadingLocal(true)
+      ;(async () => {
+        try {
+          let seat: Seat | null = localSeat
+          let zone: Zone | null = localZone
 
-type Reservation = {
-  id: string | number
-  seat_id?: string | number | null
-  status?: string | null
-  created_at?: string | null
-  user_email?: string | null
-}
+          // Resolve seat id from reservation if necessary
+          let seatId = state?.seatId
+          if (!seatId && state?.reservationId) {
+            const { data: resData } = await supabase
+              .from('reservations')
+              .select('seat_id')
+              .eq('id', state.reservationId)
+              .maybeSingle()
+            seatId = resData?.seat_id
+          }
 
-function App() {
-  const [session, setSession] = useState(false)
-  const [userEmail, setUserEmail] = useState<string | null>(null)
-  const [isAdmin, setIsAdmin] = useState(false)
-  const [userFirstName, setUserFirstName] = useState('Guest')
-  const [statusMessage, setStatusMessage] = useState<string | null>(null)
-  const [zones, setZones] = useState<Zone[]>([])
-  const [seatList, setSeatList] = useState<Seat[]>([])
-  const [reservations, setReservations] = useState<Reservation[]>([])
-  const [zoneFreeCounts, setZoneFreeCounts] = useState<Record<string, number>>({})
-  const [loadingData, setLoadingData] = useState(false)
-  const [selectedSeat, setSelectedSeat] = useState<Seat | null>(null)
-  const [selectedZone, setSelectedZone] = useState<Zone | null>(null)
+          if (seatId) {
+            const { data: seatData } = await supabase.from('seats').select('*').eq('id', seatId).maybeSingle()
+            seat = seatData || null
+            setLocalSeat(seat)
+          }
+
+          if (!zone) {
+            if (state?.zone) zone = state.zone
+            else if (seat?.zone_id) zone = HARDCODED_ZONES.find((z) => String(z.id) === String(seat.zone_id)) || null
+            setLocalZone(zone)
+          }
+
+          if (!localStart) {
+            if (state?.startedAt) setLocalStart(new Date(state.startedAt))
+            else setLocalStart(new Date())
+          }
+        } catch (err) {
+          navigate('/', { replace: true })
+        } finally {
+          setLoadingLocal(false)
+        }
+      })()
+    }, [])
+
+    const displayStart = activeSessionStart || localStart
+    const displaySeat = activeSessionSeat || localSeat
+    const displayZone = activeSessionZone || localZone
+
+    useEffect(() => {
+      if (!displayStart) return
+
+      const updateElapsed = () => {
+        setElapsed(Math.floor((Date.now() - displayStart.getTime()) / 1000))
+      }
+
+      updateElapsed()
+      const timer = window.setInterval(updateElapsed, 1000)
+
+      return () => window.clearInterval(timer)
+    }, [displayStart])
+
+    if (!displayStart && !loadingLocal) {
+      return (
+        <div className="rounded-3xl border border-white/10 bg-slate-950/80 p-8 text-center text-slate-300 shadow-xl shadow-black/30">
+          <p className="text-lg text-slate-300">No active session found.</p>
+          <p className="mt-3 text-sm text-slate-500">Reserve a seat and check in to start tracking your session.</p>
+        </div>
+      )
+    }
+
+    return (
+      <div className="space-y-8">
+        <section className="rounded-3xl border border-white/10 bg-slate-950/80 p-8 shadow-xl shadow-black/30">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-sm uppercase tracking-[0.35em] text-teal-400/80">Active session</p>
+              <h2 className="mt-2 text-3xl font-semibold text-white">Your study session</h2>
+            </div>
+            <div className="rounded-3xl bg-gradient-to-r from-teal-600/20 to-teal-400/10 p-4 text-right">
+              <p className="text-sm uppercase tracking-[0.35em] text-teal-200/80">Elapsed</p>
+              <p className="mt-2 text-3xl font-semibold text-white">{formatCountdown(elapsed)}</p>
+            </div>
+          </div>
+        </section>
+
+        <section className="rounded-3xl border border-white/10 bg-slate-950/80 p-8 shadow-xl shadow-black/30">
+          <div className="grid gap-4 sm:grid-cols-3">
+            <div className="rounded-3xl bg-slate-900/80 p-5">
+              <p className="text-sm uppercase tracking-[0.35em] text-slate-400">Seat</p>
+              <p className="mt-3 text-xl font-semibold text-white">
+                {displaySeat?.seat_number || displaySeat?.label || 'Unknown'}
+              </p>
+            </div>
+            <div className="rounded-3xl bg-slate-900/80 p-5">
+              <p className="text-sm uppercase tracking-[0.35em] text-slate-400">Zone</p>
+              <p className="mt-3 text-xl font-semibold text-white">{displayZone?.name || 'Unknown'}</p>
+            </div>
+            <div className="rounded-3xl bg-slate-900/80 p-5">
+              <p className="text-sm uppercase tracking-[0.35em] text-slate-400">Started</p>
+              <p className="mt-3 text-xl font-semibold text-white">
+                {displayStart?.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </p>
+            </div>
+          </div>
   const [currentReservation, setCurrentReservation] = useState<{
     reservationId: string | number
     seat: Seat
@@ -74,8 +138,10 @@ function App() {
   } | null>(null)
   const [reservationOpen, setReservationOpen] = useState(false)
   const [countdown, setCountdown] = useState(900)
+  const [activeSessionStart, setActiveSessionStart] = useState<Date | null>(null)
   const [activeSessionSeat, setActiveSessionSeat] = useState<Seat | null>(null)
-  const [currentScreen, setCurrentScreen] = useState<'reservation-timer' | 'active-session'>('reservation-timer')
+  const [activeSessionZone, setActiveSessionZone] = useState<Zone | null>(null)
+  const [activeSessionReservationId, setActiveSessionReservationId] = useState<string | number | null>(null)
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -219,7 +285,11 @@ function App() {
   const loadDashboardData = async () => {
     setLoadingData(true)
     try {
-      const zoneResponse = await supabase.from('zones').select('id,name,description')
+      const zoneIds = HARDCODED_ZONES.map((zone) => zone.id)
+      const zoneResponse = await supabase
+        .from('zones')
+        .select('id,name,description')
+        .in('id', zoneIds)
       const seatResponse = await supabase.from('seats').select('*')
       const reservationResponse = await supabase
         .from('reservations')
@@ -253,7 +323,7 @@ function App() {
         return acc
       }, {} as Record<string, number>)
 
-      setZones(zoneResponse.data || [])
+      setZones(HARDCODED_ZONES)
       setSeatList(seats)
       setReservations(reservationResponse.data || [])
       setZoneFreeCounts(freeCounts)
@@ -263,7 +333,7 @@ function App() {
   }
 
   const openSeatModal = (seat: Seat) => {
-    const zone = zones.find((zone) => String(zone.id) === String(seat.zone_id)) || null
+    const zone = HARDCODED_ZONES.find((zone) => String(zone.id) === String(seat.zone_id)) || null
     setSelectedSeat(seat)
     setSelectedZone(zone)
   }
@@ -369,7 +439,7 @@ function App() {
     }
 
     const reservationId = reservationData.id
-    const zone = selectedZone || zones.find((zone) => String(zone.id) === String(selectedSeat.zone_id)) || null
+    const zone = selectedZone || HARDCODED_ZONES.find((zone) => String(zone.id) === String(selectedSeat.zone_id))
     setCurrentReservation({
       reservationId,
       seat: { ...selectedSeat, status: 'reserved' },
@@ -383,6 +453,7 @@ function App() {
     setReservationOpen(true)
     setCountdown(15 * 60)
     setActiveSessionSeat(null)
+    setActiveSessionZone(null)
     closeSeatModal()
     loadDashboardData()
     setStatusMessage('Seat reserved. Continue to the timer to check in.')
@@ -416,13 +487,15 @@ function App() {
       .eq('id', currentReservation.seat.id)
 
     const startedAt = new Date()
+    setActiveSessionStart(startedAt)
     setActiveSessionSeat({ ...currentReservation.seat, status: 'occupied' })
+    setActiveSessionZone(currentReservation.zone)
+    setActiveSessionReservationId(currentReservation.reservationId)
     setCurrentReservation(null)
     setReservationOpen(false)
     setCountdown(900)
     setStatusMessage('Checked in successfully.')
     loadDashboardData()
-    setCurrentScreen('active-session')
 
     const activeSessionData = {
       reservationId: currentReservation.reservationId,
@@ -479,11 +552,36 @@ function App() {
     })
 
     if (activeSessionSeat?.id === seatId) {
+      setActiveSessionStart(null)
       setActiveSessionSeat(null)
+      setActiveSessionZone(null)
+      setActiveSessionReservationId(null)
     }
 
     setStatusMessage('Seat released successfully.')
     loadDashboardData()
+  }
+
+  const vacate = async () => {
+    const seatId = activeSessionSeat?.id
+    const reservationId = activeSessionReservationId
+
+    if (seatId != null) {
+      await supabase.from('seats').update({ status: 'free' }).eq('id', seatId)
+    }
+
+    if (reservationId != null) {
+      await supabase.from('reservations').delete().eq('id', reservationId)
+    }
+
+    localStorage.removeItem(ACTIVE_SESSION_STORAGE_KEY)
+    setActiveSessionStart(null)
+    setActiveSessionSeat(null)
+    setActiveSessionZone(null)
+    setActiveSessionReservationId(null)
+    setStatusMessage('Seat released. Thanks!')
+    loadDashboardData()
+    navigate('/')
   }
 
   const greeting = userFirstName || (userEmail ? userEmail.split('@')[0] : 'Guest')
@@ -595,21 +693,17 @@ function App() {
                 )
               }
             />
-                    <Route
+            <Route
               path="/reservation"
               element={
                 session ? (
-                  currentScreen === 'active-session' ? (
-                    <ActiveSessionScreen />
-                  ) : (
-                    <ReservationScreen
-                      currentReservation={currentReservation}
-                      countdown={countdown}
-                      cancelReservation={cancelReservation}
-                      checkIn={checkIn}
-                      setStatusMessage={setStatusMessage}
-                    />
-                  )
+                  <ReservationScreen
+                    currentReservation={currentReservation}
+                    countdown={countdown}
+                    cancelReservation={cancelReservation}
+                    checkIn={checkIn}
+                    setStatusMessage={setStatusMessage}
+                  />
                 ) : (
                   <Navigate to="/login" replace />
                 )
@@ -619,7 +713,12 @@ function App() {
               path="/active-session"
               element={
                 session ? (
-                  <ActiveSessionScreen />
+                  <ActiveSessionScreen
+                    activeSessionStart={activeSessionStart}
+                    activeSessionSeat={activeSessionSeat}
+                    activeSessionZone={activeSessionZone}
+                    vacate={vacate}
+                  />
                 ) : (
                   <Navigate to="/login" replace />
                 )
@@ -964,7 +1063,8 @@ function ReservationScreen({
               // ignore
             }
             setScannerOpen(false)
-                    await checkIn()
+            await checkIn()
+            navigate('/active-session')
           } else {
             setStatusMessage('Wrong seat — please scan the QR code at your reserved seat.')
           }
@@ -1064,7 +1164,7 @@ function ReservationScreen({
         )}
         {scanError && (
           <button
-            onClick={() => checkIn()}
+            onClick={checkIn}
             className="mt-4 rounded-3xl bg-slate-800 px-6 py-4 text-sm font-semibold text-white transition hover:bg-slate-700"
           >
             Manual check-in
@@ -1075,19 +1175,121 @@ function ReservationScreen({
   )
 }
 
-function ActiveSessionScreen() {
+function ActiveSessionScreen({
+  activeSessionStart,
+  activeSessionSeat,
+  activeSessionZone,
+  vacate,
+}: {
+  activeSessionStart: Date | null
+  activeSessionSeat: Seat | null
+  activeSessionZone: Zone | null
+  vacate: () => void
+}) {
+  const [elapsed, setElapsed] = useState(0)
+  const [localStart, setLocalStart] = useState<Date | null>(activeSessionStart)
+  const [localSeatNumber, setLocalSeatNumber] = useState<string | null>(activeSessionSeat?.seat_number || activeSessionSeat?.label || null)
+  const [localZoneName, setLocalZoneName] = useState<string | null>(activeSessionZone?.name || null)
+  const [loadingLocal, setLoadingLocal] = useState(false)
   const navigate = useNavigate()
 
+  useEffect(() => {
+    if (activeSessionStart && activeSessionSeat && activeSessionZone) return
+
+    const stored = localStorage.getItem(ACTIVE_SESSION_STORAGE_KEY)
+    if (!stored) {
+      navigate('/', { replace: true })
+      return
+    }
+
+    setLoadingLocal(true)
+    try {
+      const parsed = JSON.parse(stored)
+      if (!parsed || !parsed.reservationId || !parsed.seatId || !parsed.startedAt) {
+        throw new Error('Invalid active session data')
+      }
+      setLocalStart(new Date(parsed.startedAt))
+      setLocalSeatNumber(parsed.seatNumber || null)
+      setLocalZoneName(parsed.zoneName || null)
+    } catch (error) {
+      localStorage.removeItem(ACTIVE_SESSION_STORAGE_KEY)
+      navigate('/', { replace: true })
+    } finally {
+      setLoadingLocal(false)
+    }
+  }, [activeSessionStart, activeSessionSeat, activeSessionZone, navigate])
+
+  const displayStart = activeSessionStart || localStart
+  const displaySeatNumber = activeSessionSeat?.seat_number || activeSessionSeat?.label || localSeatNumber
+  const displayZoneName = activeSessionZone?.name || localZoneName
+
+  useEffect(() => {
+    if (!displayStart) return
+
+    const updateElapsed = () => {
+      setElapsed(Math.floor((Date.now() - displayStart.getTime()) / 1000))
+    }
+
+    updateElapsed()
+    const timer = window.setInterval(updateElapsed, 1000)
+
+    return () => window.clearInterval(timer)
+  }, [displayStart])
+
+  if (!displayStart && !loadingLocal) {
+    return (
+      <div className="rounded-3xl border border-white/10 bg-slate-950/80 p-8 text-center text-slate-300 shadow-xl shadow-black/30">
+        <p className="text-lg text-slate-300">No active session found.</p>
+        <p className="mt-3 text-sm text-slate-500">Reserve a seat and check in to start tracking your session.</p>
+      </div>
+    )
+  }
+
   return (
-    <div style={{ color: 'white', padding: '20px' }}>
-      <h1>Active Session</h1>
-      <p>localStorage data: {localStorage.getItem('libraseat_active_session')}</p>
-      <button
-        onClick={() => navigate('/')}
-        style={{ marginTop: '16px', padding: '10px 16px', borderRadius: '12px', background: '#14b8a6', color: '#0f172a', border: 'none', cursor: 'pointer' }}
-      >
-        Go home
-      </button>
+    <div className="space-y-8">
+      <section className="rounded-3xl border border-white/10 bg-slate-950/80 p-8 shadow-xl shadow-black/30">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm uppercase tracking-[0.35em] text-teal-400/80">Active session</p>
+            <h2 className="mt-2 text-3xl font-semibold text-white">Your study session</h2>
+          </div>
+          <div className="rounded-3xl bg-gradient-to-r from-teal-600/20 to-teal-400/10 p-4 text-right">
+            <p className="text-sm uppercase tracking-[0.35em] text-teal-200/80">Elapsed</p>
+            <p className="mt-2 text-3xl font-semibold text-white">{formatCountdown(elapsed)}</p>
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-3xl border border-white/10 bg-slate-950/80 p-8 shadow-xl shadow-black/30">
+        <div className="grid gap-4 sm:grid-cols-3">
+          <div className="rounded-3xl bg-slate-900/80 p-5">
+            <p className="text-sm uppercase tracking-[0.35em] text-slate-400">Seat</p>
+            <p className="mt-3 text-xl font-semibold text-white">{displaySeatNumber || 'Unknown'}</p>
+          </div>
+          <div className="rounded-3xl bg-slate-900/80 p-5">
+            <p className="text-sm uppercase tracking-[0.35em] text-slate-400">Zone</p>
+            <p className="mt-3 text-xl font-semibold text-white">{displayZoneName || 'Unknown'}</p>
+          </div>
+          <div className="rounded-3xl bg-slate-900/80 p-5">
+            <p className="text-sm uppercase tracking-[0.35em] text-slate-400">Started</p>
+            <p className="mt-3 text-xl font-semibold text-white">
+              {displayStart?.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-3xl border border-white/10 bg-slate-950/80 p-8 shadow-[0_20px_60px_-40px_rgba(0,0,0,0.8)]">
+        <p className="text-sm text-slate-300">
+          Track how long your current seat has been active. Vacate the seat when you finish so the library can keep the map updated.
+        </p>
+        <button
+          onClick={vacate}
+          className="mt-6 rounded-3xl bg-rose-500 px-6 py-4 text-sm font-semibold text-white transition hover:bg-rose-400"
+        >
+          Vacate seat
+        </button>
+      </section>
     </div>
   )
 }
@@ -1286,7 +1488,8 @@ function AdminRestricted() {
     <div className="rounded-3xl border border-white/10 bg-slate-950/80 p-8 text-center text-slate-300 shadow-xl shadow-black/30">
       <h2 className="text-2xl font-semibold text-white">Admin access required</h2>
       <p className="mt-3 text-sm text-slate-400">
-        Your account is not recognized as an admin user. Only users with <span className="font-semibold text-teal-300">is_admin=true</span> in the
+        Your account is not recognized as an admin user. Only users with{' '}
+        <span className="font-semibold text-teal-300">is_admin=true</span> in the
         users table can access this panel.
       </p>
     </div>
