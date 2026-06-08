@@ -71,6 +71,7 @@ function formatCountdown(seconds: number) {
 function App() {
   const [session, setSession] = useState<boolean>(false)
   const [userEmail, setUserEmail] = useState<string | null>(null)
+  const [userFirstName, setUserFirstName] = useState<string>('Guest')
   const [isAdmin, setIsAdmin] = useState(false)
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
   const [zones, setZones] = useState<Zone[]>([])
@@ -185,6 +186,7 @@ function App() {
     setSession(false)
     setUserEmail(null)
     setIsAdmin(false)
+    setUserFirstName('Guest')
     setStatusMessage('Signed out successfully.')
   }
 
@@ -193,6 +195,7 @@ function App() {
       setSession(false)
       setUserEmail(null)
       setIsAdmin(false)
+      setUserFirstName('Guest')
       return
     }
 
@@ -208,6 +211,18 @@ function App() {
     setSession(true)
     setUserEmail(email)
     setStatusMessage(null)
+
+    // Try to read the user's display name from the auth session metadata
+    try {
+      const { data: authUser } = await supabase.auth.getUser()
+      const meta = (authUser as any)?.user?.user_metadata || {}
+      const fullName = meta.full_name || meta.name || ''
+      const first = fullName ? String(fullName).split(' ')[0] : (email ? String(email).split('@')[0] : 'Guest')
+      setUserFirstName(first)
+    } catch (err) {
+      const first = email ? String(email).split('@')[0] : 'Guest'
+      setUserFirstName(first)
+    }
 
     const { data, error } = await supabase
       .from('users')
@@ -506,7 +521,7 @@ function App() {
     navigate('/')
   }
 
-  const greeting = userEmail ? userEmail.split('@')[0] : 'Guest'
+  const greeting = userFirstName || (userEmail ? userEmail.split('@')[0] : 'Guest')
 
   return (
     <div className="min-h-screen bg-[#0B1120] text-slate-100">
