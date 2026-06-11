@@ -53,6 +53,24 @@ const toActiveSessionData = (value: unknown): ActiveSessionData | null => {
   }
 }
 
+const getStoredActiveSessionData = () => {
+  try {
+    const stored = localStorage.getItem(ACTIVE_SESSION_STORAGE_KEY)
+    if (!stored) return null
+
+    const parsed = toActiveSessionData(JSON.parse(stored))
+    if (!parsed) {
+      localStorage.removeItem(ACTIVE_SESSION_STORAGE_KEY)
+      return null
+    }
+
+    return parsed
+  } catch {
+    localStorage.removeItem(ACTIVE_SESSION_STORAGE_KEY)
+    return null
+  }
+}
+
 type Seat = {
   id: number | string
   seat_number?: string | null
@@ -107,8 +125,10 @@ function App() {
   const [reservationOpen, setReservationOpen] = useState(false)
   const [countdown, setCountdown] = useState(900)
   const [activeSessionSeat, setActiveSessionSeat] = useState<Seat | null>(null)
-  const [activeSessionData, setActiveSessionData] = useState<ActiveSessionData | null>(null)
-  const [checkedIn, setCheckedIn] = useState(false)
+  const [activeSessionData, setActiveSessionData] = useState<ActiveSessionData | null>(
+    () => getStoredActiveSessionData(),
+  )
+  const [checkedIn, setCheckedIn] = useState(() => Boolean(getStoredActiveSessionData()))
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -192,6 +212,7 @@ function App() {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
+        redirectTo: window.location.origin,
         queryParams: {
           prompt: 'select_account',
         },
@@ -211,6 +232,7 @@ function App() {
     setUserFirstName('Guest')
     setActiveSessionData(null)
     setCheckedIn(false)
+    localStorage.removeItem(ACTIVE_SESSION_STORAGE_KEY)
     setStatusMessage('Signed out successfully.')
   }
 
@@ -222,6 +244,7 @@ function App() {
       setUserFirstName('Guest')
       setActiveSessionData(null)
       setCheckedIn(false)
+      localStorage.removeItem(ACTIVE_SESSION_STORAGE_KEY)
       return
     }
 
@@ -233,6 +256,7 @@ function App() {
       setIsAdmin(false)
       setActiveSessionData(null)
       setCheckedIn(false)
+      localStorage.removeItem(ACTIVE_SESSION_STORAGE_KEY)
       return
     }
 
@@ -430,6 +454,7 @@ function App() {
     setActiveSessionSeat(null)
     setActiveSessionData(null)
     setCheckedIn(false)
+    localStorage.removeItem(ACTIVE_SESSION_STORAGE_KEY)
     closeSeatModal()
     loadDashboardData()
     setStatusMessage('Seat reserved. Continue to the timer to check in.')
@@ -447,6 +472,7 @@ function App() {
     setCountdown(900)
     setActiveSessionData(null)
     setCheckedIn(false)
+    localStorage.removeItem(ACTIVE_SESSION_STORAGE_KEY)
     setStatusMessage('Reservation cancelled.')
     loadDashboardData()
     return
@@ -680,7 +706,7 @@ function App() {
               path="/active-session"
               element={
                 session ? (
-                  <ActiveSessionScreen initialSessionData={activeSessionData} />
+                  <Navigate to="/reservation" replace />
                 ) : (
                   <Navigate to="/login" replace />
                 )
