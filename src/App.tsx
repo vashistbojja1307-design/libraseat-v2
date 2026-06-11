@@ -30,6 +30,29 @@ const formatCountdown = (seconds: number) => {
   return `${minutes}:${secs}`
 }
 
+const toActiveSessionData = (value: unknown): ActiveSessionData | null => {
+  if (!value || typeof value !== 'object') return null
+
+  const candidate = value as Partial<ActiveSessionData>
+  if (
+    candidate.reservationId == null ||
+    candidate.seatId == null ||
+    typeof candidate.seatNumber !== 'string' ||
+    typeof candidate.zoneName !== 'string' ||
+    typeof candidate.startedAt !== 'string'
+  ) {
+    return null
+  }
+
+  return {
+    reservationId: String(candidate.reservationId),
+    seatId: String(candidate.seatId),
+    seatNumber: candidate.seatNumber,
+    zoneName: candidate.zoneName,
+    startedAt: candidate.startedAt,
+  }
+}
+
 type Seat = {
   id: number | string
   seat_number?: string | null
@@ -53,8 +76,17 @@ type Reservation = {
   user_email?: string | null
 }
 
+type ActiveSessionData = {
+  reservationId: string
+  seatId: string
+  seatNumber: string
+  zoneName: string
+  startedAt: string
+}
+
 function App() {
   const [session, setSession] = useState(false)
+  const [authLoading, setAuthLoading] = useState(true)
   const [userEmail, setUserEmail] = useState<string | null>(null)
   const [isAdmin, setIsAdmin] = useState(false)
   const [userFirstName, setUserFirstName] = useState('Guest')
@@ -75,14 +107,21 @@ function App() {
   const [reservationOpen, setReservationOpen] = useState(false)
   const [countdown, setCountdown] = useState(900)
   const [activeSessionSeat, setActiveSessionSeat] = useState<Seat | null>(null)
+  const [activeSessionData, setActiveSessionData] = useState<ActiveSessionData | null>(null)
   const [checkedIn, setCheckedIn] = useState(false)
   const navigate = useNavigate()
 
   useEffect(() => {
     async function loadSession() {
-      const { data } = await supabase.auth.getSession()
-      if (data.session) {
-        handleSession(data.session.user.email || null)
+      try {
+        const { data } = await supabase.auth.getSession()
+        if (data.session) {
+          await handleSession(data.session.user.email || null)
+        } else {
+          await handleSession(null)
+        }
+      } finally {
+        setAuthLoading(false)
       }
     }
 
@@ -170,6 +209,7 @@ function App() {
     setUserEmail(null)
     setIsAdmin(false)
     setUserFirstName('Guest')
+    setActiveSessionData(null)
     setCheckedIn(false)
     setStatusMessage('Signed out successfully.')
   }
@@ -180,6 +220,8 @@ function App() {
       setUserEmail(null)
       setIsAdmin(false)
       setUserFirstName('Guest')
+      setActiveSessionData(null)
+      setCheckedIn(false)
       return
     }
 
@@ -189,6 +231,8 @@ function App() {
       setSession(false)
       setUserEmail(null)
       setIsAdmin(false)
+      setActiveSessionData(null)
+      setCheckedIn(false)
       return
     }
 
@@ -384,6 +428,7 @@ function App() {
     setReservationOpen(true)
     setCountdown(15 * 60)
     setActiveSessionSeat(null)
+    setActiveSessionData(null)
     setCheckedIn(false)
     closeSeatModal()
     loadDashboardData()
@@ -400,6 +445,7 @@ function App() {
     setCurrentReservation(null)
     setReservationOpen(false)
     setCountdown(900)
+    setActiveSessionData(null)
     setCheckedIn(false)
     setStatusMessage('Reservation cancelled.')
     loadDashboardData()
@@ -425,17 +471,18 @@ function App() {
     setCountdown(900)
     setStatusMessage('Checked in successfully.')
     loadDashboardData()
-    setCheckedIn(true)
 
     const activeSessionData = {
-      reservationId: currentReservation.reservationId,
-      seatId: currentReservation.seat.id,
+      reservationId: String(currentReservation.reservationId),
+      seatId: String(currentReservation.seat.id),
       seatNumber: currentReservation.seat.seat_number || currentReservation.seat.label || String(currentReservation.seat.id),
       zoneName: currentReservation.zone.name || 'Unknown zone',
       startedAt: startedAt.toISOString(),
     }
 
     localStorage.setItem(ACTIVE_SESSION_STORAGE_KEY, JSON.stringify(activeSessionData))
+    setActiveSessionData(activeSessionData)
+    setCheckedIn(true)
 
     return activeSessionData
   }
@@ -490,6 +537,17 @@ function App() {
   }
 
   const greeting = userFirstName || (userEmail ? userEmail.split('@')[0] : 'Guest')
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-[#0B1120] px-6 py-6 text-slate-100">
+        <div className="mx-auto max-w-7xl rounded-3xl border border-white/10 bg-slate-950/80 p-8 shadow-xl shadow-black/30">
+          <p className="text-sm uppercase tracking-[0.35em] text-teal-400/80">LibraSeat</p>
+          <p className="mt-3 text-lg font-semibold text-white">Loading your session...</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-[#0B1120] text-slate-100">
@@ -603,7 +661,7 @@ function App() {
               element={
                 session ? (
                   checkedIn ? (
-                    <ActiveSessionScreen />
+                    <ActiveSessionScreen initialSessionData={activeSessionData} />
                   ) : (
                     <ReservationScreen
                       currentReservation={currentReservation}
@@ -622,7 +680,7 @@ function App() {
               path="/active-session"
               element={
                 session ? (
-                  <ActiveSessionScreen />
+                  <ActiveSessionScreen initialSessionData={activeSessionData} />
                 ) : (
                   <Navigate to="/login" replace />
                 )
@@ -1078,31 +1136,29 @@ function ReservationScreen({
   )
 }
 
-function ActiveSessionScreen() {
+function ActiveSessionScreen({
+  initialSessionData,
+}: {
+  initialSessionData?: ActiveSessionData | null
+}) {
   const navigate = useNavigate()
-  const [sessionData, setSessionData] = useState<{
-    reservationId: string
-    seatId: string
-    seatNumber: string
-    zoneName: string
-    startedAt: string
-  } | null>(null)
+  const [sessionData, setSessionData] = useState<ActiveSessionData | null>(
+    initialSessionData || null,
+  )
   const [elapsed, setElapsed] = useState(0)
 
   useEffect(() => {
+    if (initialSessionData) {
+      setSessionData(initialSessionData)
+      return
+    }
+
     try {
       const stored = localStorage.getItem(ACTIVE_SESSION_STORAGE_KEY)
       if (!stored) return
 
-      const parsed = JSON.parse(stored)
-      if (
-        !parsed ||
-        typeof parsed.reservationId !== 'string' ||
-        typeof parsed.seatId !== 'string' ||
-        typeof parsed.seatNumber !== 'string' ||
-        typeof parsed.zoneName !== 'string' ||
-        typeof parsed.startedAt !== 'string'
-      ) {
+      const parsed = toActiveSessionData(JSON.parse(stored))
+      if (!parsed) {
         localStorage.removeItem(ACTIVE_SESSION_STORAGE_KEY)
         return
       }
@@ -1111,7 +1167,7 @@ function ActiveSessionScreen() {
     } catch {
       localStorage.removeItem(ACTIVE_SESSION_STORAGE_KEY)
     }
-  }, [])
+  }, [initialSessionData])
 
   useEffect(() => {
     if (!sessionData?.startedAt) return
