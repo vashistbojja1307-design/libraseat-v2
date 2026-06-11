@@ -75,7 +75,7 @@ function App() {
   const [reservationOpen, setReservationOpen] = useState(false)
   const [countdown, setCountdown] = useState(900)
   const [activeSessionSeat, setActiveSessionSeat] = useState<Seat | null>(null)
-  const [currentScreen, setCurrentScreen] = useState<'reservation-timer' | 'active-session'>('reservation-timer')
+  const [checkedIn, setCheckedIn] = useState(false)
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -170,6 +170,7 @@ function App() {
     setUserEmail(null)
     setIsAdmin(false)
     setUserFirstName('Guest')
+    setCheckedIn(false)
     setStatusMessage('Signed out successfully.')
   }
 
@@ -383,6 +384,7 @@ function App() {
     setReservationOpen(true)
     setCountdown(15 * 60)
     setActiveSessionSeat(null)
+    setCheckedIn(false)
     closeSeatModal()
     loadDashboardData()
     setStatusMessage('Seat reserved. Continue to the timer to check in.')
@@ -398,6 +400,7 @@ function App() {
     setCurrentReservation(null)
     setReservationOpen(false)
     setCountdown(900)
+    setCheckedIn(false)
     setStatusMessage('Reservation cancelled.')
     loadDashboardData()
     return
@@ -422,7 +425,7 @@ function App() {
     setCountdown(900)
     setStatusMessage('Checked in successfully.')
     loadDashboardData()
-    setCurrentScreen('active-session')
+    setCheckedIn(true)
 
     const activeSessionData = {
       reservationId: currentReservation.reservationId,
@@ -599,7 +602,7 @@ function App() {
               path="/reservation"
               element={
                 session ? (
-                  currentScreen === 'active-session' ? (
+                  checkedIn ? (
                     <ActiveSessionScreen />
                   ) : (
                     <ReservationScreen
@@ -965,9 +968,6 @@ function ReservationScreen({
             }
             setScannerOpen(false)
             await checkIn()
-            setTimeout(() => {
-  window.location.href = '/#/active-session';
-}, 500);
           } else {
             setStatusMessage('Wrong seat — please scan the QR code at your reserved seat.')
           }
